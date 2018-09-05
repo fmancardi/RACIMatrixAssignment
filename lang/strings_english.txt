@@ -1,0 +1,3 @@
+<?php
+$s_plugin_RACIMatrixAssignment_plugin_title = 'RACI Matrix Assignment';
+$s_plugin_RACIMatrixAssignment_plugin_description = 'Allow configuration of four available roles for each user';
