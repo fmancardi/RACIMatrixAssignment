@@ -1,3 +1,14 @@
 <?php
 $s_plugin_RACIMatrixAssignment_plugin_title = 'RACI Matrix Assignment';
 $s_plugin_RACIMatrixAssignment_plugin_description = 'Allow configuration of four available roles for each user';
+
+
+$s_plugin_RACIMatrixAssignment_can_be_raci_r = 'Can Play Responsible Role?';
+$s_plugin_RACIMatrixAssignment_can_be_raci_a = 'Can Play Accountable Role?';
+$s_plugin_RACIMatrixAssignment_can_be_raci_c = 'Can Play Consulted Role?';
+$s_plugin_RACIMatrixAssignment_can_be_raci_i = 'Can Play Informed Role?';
+
+$s_plugin_RACIMatrixAssignment_user_id_raci_r = 'Responsible';
+$s_plugin_RACIMatrixAssignment_user_id_raci_a = 'Accountable';
+$s_plugin_RACIMatrixAssignment_user_id_raci_c = 'Consulted';
+$s_plugin_RACIMatrixAssignment_user_id_raci_i = 'Informed';
