@@ -19,13 +19,15 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
     var $fieldsKeys;
     var $inputs;
     var $inputPrefix;
+    var $bugAPI;
+    var $userAPI;
 
     function register() {
         $this->name = plugin_lang_get( 'plugin_title' );
         $this->description = plugin_lang_get( 'plugin_description' );
         $this->page = '';
 
-        $this->version = '1.0.0';
+        $this->version = '1.0.1';
         $this->requires = array(
             'MantisCore' => '2.0.0',
             'helperMethods' => '1.0.1'
@@ -36,13 +38,39 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
         $this->url = '';
     }
 
+    /**
+     *
+     * Custom Events
+     * 
+     */
+    function events(){
+      return array(
+        'EVENT_REPORT_BUG_FORM_BEFORE_CUSTOM_FIELDS' => EVENT_TYPE_EXECUTE,
+        'EVENT_UPDATE_BUG_FORM_BEFORE_CUSTOM_FIELDS' => EVENT_TYPE_EXECUTE
+      );
+    }
+
+
+    /**
+     *
+     *
+     */ 
     function hooks() {
         return array(
             'EVENT_MANAGE_USER_CREATE_FORM' => 'manageUserCreateForm',
             'EVENT_MANAGE_USER_CREATE' => 'saveRACIRolesUserCanPlay',
             'EVENT_MANAGE_USER_UPDATE_FORM' => 'manageUserUpdateForm',
             'EVENT_MANAGE_USER_UPDATE' => 'saveRACIRolesUserCanPlay',
-            'EVENT_MANAGE_USER_DELETE' => 'deleteRACIRolesUserCanPlay'
+            'EVENT_MANAGE_USER_DELETE' => 'deleteRACIRolesUserCanPlay',
+            
+            'EVENT_REPORT_BUG_FORM_BEFORE_CUSTOM_FIELDS' => 'reportBugForm',
+            'EVENT_UPDATE_BUG_FORM_BEFORE_CUSTOM_FIELDS' => 'updateBugForm',
+            'EVENT_VIEW_BUG_DETAILS' => 'bugDetails',
+            'EVENT_REPORT_BUG'  => 'reportBug',
+            'EVENT_UPDATE_BUG'  => 'updateBug',
+            'EVENT_BUG_DELETED'  => 'deleteBug',
+
+
         );
     }
 
@@ -55,17 +83,22 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
         $this->whoami = str_replace('Plugin','',__CLASS__);
         $this->inputPrefix = $this->whoami . '_';
 
-        $this->fieldsKeys = array('can_be_raci_r' => null,
-                                  'can_be_raci_a' => null,
-                                  'can_be_raci_c' => null,
-                                  'can_be_raci_i' => null);
-        foreach($this->fieldsKeys as $key => $val) {
-            $this->fieldsKeys[$key] = $key;
-        } 
+        $this->fieldsKeysFor = array('user' => array(), 'bug' => array());
+        $prefix = array('user' => 'can_be_raci_', 'bug' => 'user_id_raci_');
+        $raci = explode(',','r,a,c,i');
+        foreach($raci as $role) {
+            foreach ($prefix as $artifact => $pfx) {
+                $pfx .= $role;
+                $this->fieldsKeysFor[$artifact][$pfx] = $pfx;
+            }
+        }
         
-        $this->inputs = $this->fieldsKeys; 
-        foreach($this->inputs as $t_ty => $t_vv ) {
-            $this->inputs[$t_ty] =  $this->inputPrefix . $t_ty;
+        $this->inputsFor = $this->fieldsKeysFor;
+        foreach($this->inputsFor as $artifact => $in) {
+            foreach($in as $t_ty => $t_tv) {
+                $this->inputsFor[$artifact][$t_ty] =  
+                    $this->inputPrefix . $t_ty;
+            }
         }
 
         return $cfg;
@@ -73,8 +106,23 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
 
     /**
      *
+     * 
      */
     function init() {
+        plugin_require_api('core/BugAPI.class.php');
+        plugin_require_api('core/UserAPI.class.php');
+
+        $obj = new stdClass();
+        $obj->fieldsKeys = $this->fieldsKeysFor['bug'];
+        $obj->inputs = $this->inputsFor['bug'];
+        $obj->inputPrefix = $this->inputPrefix;
+        $this->bugAPI = new RACIMatrixAssignment\BugAPI( $obj );
+        
+        $obj = new stdClass();
+        $obj->fieldsKeys = $this->fieldsKeysFor['user'];
+        $obj->inputs = $this->inputsFor['user'];
+        $obj->inputPrefix = $this->inputPrefix;
+        $this->userAPI = new RACIMatrixAssignment\UserAPI( $obj );
     }
 
 
@@ -91,7 +139,7 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
      *
      */ 
     function manageUserCreateForm( $p_event, $p_user_id = null ) {
-        $this->raciInputs();
+        $this->userAPI->raciInputs();
     }
 
     /**
@@ -99,64 +147,10 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
      *
      */
     function manageUserUpdateForm( $p_event, $p_user_id = null ) {
-        $this->raciInputs($p_user_id,'edit');
+        $this->userAPI->raciInputs($p_user_id,'edit');
     }
 
 
-    /**
-     *
-     *
-     */
-    function raciInputs( $p_user_id = null, $p_operation = null ) {
-        
-        echo __FUNCTION__;
-
-
-        $table = plugin_table( 'users' );
-        $attr = array();
-        switch( $p_operation ) {
-            case 'edit':
-                $str_open = $str_close = '';
-                $t_query = " SELECT * FROM {$table} 
-                             WHERE user_id=" . db_param();
-
-                $t_sql_param = array( $p_user_id );
-                $t_result = db_query( $t_query, $t_sql_param);
-                
-                if( db_affected_rows() == 0 ) {
-                  // Transform operation in create
-                    $attr = array();
-                    foreach($this->fieldsKeys as $fieldName) {
-                      $attr[$fieldName] = 0;
-                    }
-                } else {
-                    $t_row = db_fetch_array( $t_result );
-                    foreach($this->fieldsKeys as $fieldName) {
-                      $attr[$fieldName] = $t_row[$fieldName];
-                    }
-                } 
-
-            break;
-
-            case 'create':
-            default:
-                $str_open = ' <p><table class="table table-bordered ' .
-                            ' table-condensed table-striped">' . '<fieldset>';
-                $str_close = '</fieldset></table>';
-                $attr = array();
-                foreach($this->fieldsKeys as $fieldName) {
-                  $attr[$fieldName] = 0;
-                }
-            break;
-        }
-        echo $str_open;
-        $dgOpt = array('input_prefix' => $this->inputPrefix);
-        foreach($attr as $key => $val) {
-            $xx = array($key => $val);
-            helperMethodsPlugin::drawGenericYesNoComboRow( $xx, $dgOpt );
-        }
-        echo $str_close;
-    }
 
   
    /**
@@ -193,76 +187,11 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
         $t_result = db_query( $t_query, array( $p_user_id ) );
 
         if( db_affected_rows() == 0 ) {
-          $this->insertRACIRoles( $p_user_id );
+          $this->userAPI->insertRACIRoles( $p_user_id );
         } else {
-          $this->updateRACIRoles( $p_user_id, $t_result );          
+          $this->userAPI->updateRACIRoles( $p_user_id, $t_result );          
         }
         
-    }
-
-    /**
-     *
-     */
-    function getUserInput() {      
-        $userInput = array();
-        foreach($this->inputs as $t_ty => $t_vv ) {  
-            $accessKey = $this->inputPrefix . $t_ty;
-
-            $userInput[$t_ty] = 0;  
-            if( isset($_REQUEST[$accessKey]) ) {
-                $userInput[$t_ty] = intval($_REQUEST[$accessKey]);
-            }         
-        }
-        return $userInput;
-    }
-
-    /**
-     *
-     */
-    function insertRACIRoles($p_user_id) {
-        $table = plugin_table( 'users' );
-        $userInput = $this->getUserInput();
-        
-        // Litte Magic Begin
-        $t_raci_fields = implode(',',array_keys($this->fieldsKeys));
-
-        $t_db_param = array(db_param()); 
-        $t_sql_param = array($p_user_id);
-        foreach($this->fieldsKeys as $fieldName) {
-            $t_db_param[] = db_param();
-            $t_sql_param[] = intval($userInput[$fieldName]);
-        }
-        $t_db_param = implode(',',$t_db_param); 
-        // Little Magic End
-        
-        $t_query = " INSERT INTO {$table}
-                     (user_id,{$t_raci_fields})
-                     VALUES( {$t_db_param} )";
-        db_query($t_query, $t_sql_param);             
-    }
-
-    /**
-     *
-     */
-    function updateRACIRoles($p_user_id) {
-        $table = plugin_table( 'users' );
-        $userInput = $this->getUserInput();
-
-        // Litte Magic Begin
-        foreach($this->fieldsKeys as $fieldName) {
-            $t_db_param[] = $fieldName . '=' . db_param();
-            $t_sql_param[] = intval($userInput[$fieldName]);
-        }
-        $t_sql_param[] = $p_user_id;
-  
-        $t_db_param = implode(',',$t_db_param); 
-        // Little Magic End
-
-        $t_query = " UPDATE {$table}
-                     SET {$t_db_param} 
-                     WHERE user_id = " . db_param();
-        
-        db_query($t_query, $t_sql_param);            
     }
 
     /**
@@ -279,6 +208,51 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
         $t_sql_param = array($p_user_id);        
         db_query($t_query,$t_sql_param);             
     }    
+
+   /**
+    *
+    *
+    */
+    function reportBugForm( $p_event, $p_project_id ) {
+        $m = __FUNCTION__;
+        $this->bugAPI->$m( $p_event, $p_project_id );
+    }
+      
+   /**
+    *
+    *
+    */
+    function reportBug( $p_event, $p_bug_data_obj, $p_bug_id ) {
+        $m = __FUNCTION__;
+        $this->bugAPI->$m( $p_event, $p_bug_data_obj, $p_bug_id );
+    }
+
+   /**
+    *
+    *
+    */
+    function updateBugForm( $p_event, $p_bug_id ) {
+        $m = __FUNCTION__;
+        $this->bugAPI->$m( $p_event, $p_bug_id );
+    }
+      
+   /**
+    *
+    *
+    */
+    function updateBug( $p_event, $p_bug, $p_updated_bug ) {
+        $m = __FUNCTION__;
+        $this->bugAPI->$m( $p_event, $p_bug, $p_updated_bug );
+    }
+
+   /**
+    *
+    *
+    */
+    function deleteBug( $p_event, $p_bug_id ) {
+        $m = __FUNCTION__;
+        $this->bugAPI->$m( $p_event, $p_bug_id );
+    }
 
 
    /** 
@@ -305,7 +279,23 @@ class RACIMatrixAssignmentPlugin extends MantisPlugin {
                                   $t_table, 
                                   'user_id', array( 'UNIQUE' ) ) );
 
+      // 
+      $t_table = plugin_table( 'bug' );
+      $t_ddl = " id  I   NOTNULL UNSIGNED PRIMARY AUTOINCREMENT,
+                 bug_id I   UNSIGNED NOTNULL DEFAULT '0',
+                 user_id_raci_r I UNSIGNED NOTNULL DEFAULT '0' ,
+                 user_id_raci_a I UNSIGNED NOTNULL DEFAULT '0' ,
+                 user_id_raci_c I UNSIGNED NOTNULL DEFAULT '0' ,
+                 user_id_raci_i I UNSIGNED NOTNULL DEFAULT '0' ";
+
+      $t_schema[] = array( 'CreateTableSQL',
+                           array($t_table , $t_ddl) );
+
+      $t_schema[] = array( 'CreateIndexSQL', 
+                           array( 'idx_bug_raci', 
+                                  $t_table, 
+                                  'bug_id', array( 'UNIQUE' ) ) );
+
       return $t_schema;
     } 
-
 } 
